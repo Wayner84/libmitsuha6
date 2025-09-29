@@ -2,8 +2,8 @@ name: Build & Release (rootless .deb)
 
 on:
   push:
-    tags: ['v*']   # push a tag like v1.0.0 to build a release
-  workflow_dispatch:
+    tags: ['v*']           # push a tag like v1.0.0
+  workflow_dispatch:       # allow manual runs
 
 permissions:
   contents: write
@@ -22,25 +22,46 @@ jobs:
         run: |
           brew update
           brew install dpkg ldid
-          
-     - name: Set up THEOS
+
+      - name: Set up THEOS (with submodules) + SDK
         run: |
-          # Clone Theos WITH submodules
-          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git $HOME/theos
-          # (belt-and-braces in case recurse-submodules ever misses anything)
-          git -C $HOME/theos submodule update --init --recursive
-      
-          # Make it available at /opt/theos for projects that expect that
+          # Clone Theos WITH submodules so dm.pl and friends exist
+          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$HOME/theos"
+          git -C "$HOME/theos" submodule update --init --recursive
+
+          # Make it available at /opt/theos for projects that expect that path
           sudo mkdir -p /opt
-          sudo ln -s $HOME/theos /opt/theos || true
-      
-          # Point Theos at the iOS SDK already on the macOS runner
+          sudo ln -s "$HOME/theos" /opt/theos || true
+
+          # Point Theos at the iOS SDK that’s on the macOS runner
           SDK_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
           mkdir -p "$HOME/theos/sdks"
           ln -sf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
-      
+
+          # Export THEOS for subsequent steps
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-      
-          # sanity check: dm.pl should now resolve
-          ls -la $HOME/theos/bin
-          test -f $HOME/theos/bin/dm.pl || (echo "dm.pl still missing" && exit 1)
+
+          # Sanity check
+          ls -la "$HOME/theos/bin"
+          test -f "$HOME/theos/bin/dm.pl" || (echo "dm.pl still missing" && exit 1)
+
+      - name: Build & Package (rootless)
+        env:
+          THEOS: ${{ env.THEOS }}
+        run: |
+          make clean package THEOS_PACKAGE_SCHEME=rootless
+          ls -la packages
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debs
+          path: packages/*.deb
+          if-no-files-found: error
+
+      - name: Create GitHub Release (attach deb)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
