@@ -2,8 +2,8 @@ name: Build & Release (rootless .deb)
 
 on:
   push:
-    tags: ['v*']           # push a tag like v1.0.0
-  workflow_dispatch:       # allow manual runs
+    tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,9 +23,12 @@ jobs:
           brew update
           brew install dpkg ldid
 
-      - name: Set up THEOS (with submodules) + SDK
+      - name: Set up THEOS (with submodules) + SDK links
+        env:
+          # Change this if your Makefile TARGET ends with another min iOS
+          MIN_IOS: "9.2"
         run: |
-          # Clone Theos WITH submodules so dm.pl and friends exist
+          # Theos + submodules (dm.pl etc.)
           git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$HOME/theos"
           git -C "$HOME/theos" submodule update --init --recursive
 
@@ -33,17 +36,22 @@ jobs:
           sudo mkdir -p /opt
           sudo ln -s "$HOME/theos" /opt/theos || true
 
-          # Point Theos at the iOS SDK that’s on the macOS runner
-          SDK_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
+          # Resolve SDK path from Xcode toolchain
+          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+          SDK_VER="$(xcrun --sdk iphoneos --show-sdk-version)"   # e.g., 18.0
           mkdir -p "$HOME/theos/sdks"
-          ln -sf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
 
-          # Export THEOS for subsequent steps
+          # Generic link
+          ln -snf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
+          # Compat links — Theos often wants iPhoneOS<MIN>.sdk or iPhoneOS<SDK_VER>.sdk
+          ln -snf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS${MIN_IOS}.sdk"
+          ln -snf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS${SDK_VER}.sdk"
+
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
 
-          # Sanity check
-          ls -la "$HOME/theos/bin"
-          test -f "$HOME/theos/bin/dm.pl" || (echo "dm.pl still missing" && exit 1)
+          # Sanity
+          test -f "$HOME/theos/bin/dm.pl" || (echo "dm.pl missing" && exit 1)
+          ls -la "$HOME/theos/sdks"
 
       - name: Build & Package (rootless)
         env:
