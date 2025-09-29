@@ -1,6 +1,7 @@
 FINALPACKAGE = 1
 
-export TARGET = iphone:17.0.2:15.0
+# Build with the latest available SDK while targeting iOS 16.1 (16.1.2 compatible)
+export TARGET = iphone:clang:latest:16.1
 export ADDITIONAL_CFLAGS = -DTHEOS_LEAN_AND_MEAN -fobjc-arc -O3
 
 ARCHS = arm64 arm64e
