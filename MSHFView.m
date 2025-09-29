@@ -1,4 +1,5 @@
 #import "public/MSHFView.h"
+#import <math.h>
 
 @implementation MSHFView
 
@@ -115,29 +116,51 @@
 }
 
 - (void)setSampleData:(float *)data length:(int)length {
-    NSUInteger const compressionRate = length / _numberOfPoints;
+    if (_numberOfPoints <= 0) {
+        return;
+    }
+
+    if (length <= 0) {
+        float const fillValue = _waveOffset;
+        for (NSInteger i = 0; i < _numberOfPoints; i++) {
+            _points[i].y = fillValue;
+        }
+        return;
+    }
+
+    NSUInteger const compressionRate = MAX((NSUInteger)1, (NSUInteger)length / (NSUInteger)_numberOfPoints);
+
+    NSUInteger const availableSamples = (NSUInteger)length / compressionRate;
+    NSUInteger const pointsToProcess = MIN((NSUInteger)_numberOfPoints, availableSamples);
+
     float gainAdjusted = self.gain * self.sensitivity;
-    if (length == 480) {
-        float meanLevel = 0.0;
-        vDSP_measqv(data, 1, &meanLevel, _numberOfPoints);
+    if (length == 480 && pointsToProcess > 0) {
+        float meanLevel = 0.0f;
+        vDSP_measqv(data, compressionRate, &meanLevel, pointsToProcess);
         gainAdjusted *= 256 * (meanLevel + 1);
     }
-    
-    vDSP_vsmul(data, compressionRate, &gainAdjusted, data, 1, _numberOfPoints);
-    
-    if (_limiter) {
-        float upperBound = _limiter;
-        float lowerBound = -upperBound;
-        vDSP_vclip(data, 1, &lowerBound, &upperBound, data, 1, _numberOfPoints);
+
+    BOOL const applyLimiter = (_limiter != 0.0f);
+    float const upperBound = _limiter;
+    float const lowerBound = -upperBound;
+
+    BOOL const applyOffset = (_waveOffset != 0.0f);
+    float const waveOffset = _waveOffset;
+
+    for (NSUInteger i = 0; i < pointsToProcess; i++) {
+        float sample = data[i * compressionRate] * gainAdjusted;
+        if (applyLimiter) {
+            sample = fminf(fmaxf(sample, lowerBound), upperBound);
+        }
+        if (applyOffset) {
+            sample += waveOffset;
+        }
+        _points[i].y = sample;
     }
-    
-    if (_waveOffset) {
-        float waveOffset = _waveOffset;
-        vDSP_vsadd(data, 1, &waveOffset, data, 1, _numberOfPoints);
-    }
-    
-    for (int i = 0; i < _numberOfPoints; i++) {
-        _points[i].y = data[i];
+
+    float const fillValue = applyOffset ? waveOffset : 0.0f;
+    for (NSUInteger i = pointsToProcess; i < (NSUInteger)_numberOfPoints; i++) {
+        _points[i].y = fillValue;
     }
 }
 @end
