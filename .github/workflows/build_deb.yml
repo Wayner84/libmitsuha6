@@ -23,24 +23,24 @@ jobs:
           brew update
           brew install dpkg ldid
           
-      - name: Set up THEOS
+     - name: Set up THEOS
         run: |
-          git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
+          # Clone Theos WITH submodules
+          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git $HOME/theos
+          # (belt-and-braces in case recurse-submodules ever misses anything)
+          git -C $HOME/theos submodule update --init --recursive
+      
+          # Make it available at /opt/theos for projects that expect that
           sudo mkdir -p /opt
-          sudo ln -s $HOME/theos /opt/theos
-          # Point Theos at the iOS SDK on the macOS runner
+          sudo ln -s $HOME/theos /opt/theos || true
+      
+          # Point Theos at the iOS SDK already on the macOS runner
           SDK_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
           mkdir -p "$HOME/theos/sdks"
-          ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
+          ln -sf "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
+      
           echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-          # sanity checks
+      
+          # sanity check: dm.pl should now resolve
           ls -la $HOME/theos/bin
-          test -f $HOME/theos/bin/dm.pl || (echo "dm.pl missing" && exit 1)
-
-      - name: Build & Package (rootless)
-        env:
-          THEOS: ${{ env.THEOS }}
-        run: |
-          # if your Makefile hard-codes /opt/theos, the symlink above covers it
-          make clean package THEOS_PACKAGE_SCHEME=rootless
-          ls -la packages
+          test -f $HOME/theos/bin/dm.pl || (echo "dm.pl still missing" && exit 1)
