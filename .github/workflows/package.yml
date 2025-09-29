@@ -1,0 +1,68 @@
+name: Package & Release (repackage dylib)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev ldid
+
+      - name: Compute version
+        id: v
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Stage rootless package
+        id: stage
+        run: |
+          PKG="libmitsuha6_${{ steps.v.outputs.VERSION }}_iphoneos-arm64"
+          mkdir -p "$PKG/DEBIAN"
+          mkdir -p "$PKG/var/jb/usr/lib" "$PKG/var/jb/usr/include/libmitsuha6" "$PKG/var/jb/usr/share/doc/libmitsuha6"
+
+          # Adjust this path to where your built dylib lives in the repo:
+          cp bin/iphoneos-arm64/libmitsuha6.dylib "$PKG/var/jb/usr/lib/"
+
+          # Optional headers & docs:
+          [ -d include ] && cp -r include/* "$PKG/var/jb/usr/include/libmitsuha6/" || true
+          [ -f LICENSE ] && cp LICENSE "$PKG/var/jb/usr/share/doc/libmitsuha6/" || true
+
+          cat > "$PKG/DEBIAN/control" <<EOF
+          Package: libmitsuha6
+          Name: libmitsuha6
+          Version: ${{ steps.v.outputs.VERSION }}
+          Architecture: iphoneos-arm64
+          Maintainer: Wayne <wayner84@icloud.com>
+          Section: Development
+          Priority: optional
+          Description: Audio visualization library used by Mitsuha-style tweaks
+          Depends:
+          EOF
+
+          # Sign the Mach-O (ldid is a no-op on Linux if no entitlements)
+          ldid -S "$PKG/var/jb/usr/lib/libmitsuha6.dylib" || true
+
+          dpkg-deb --build "$PKG" "${PKG}.deb"
+          echo "deb=${PKG}.deb" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: ${{ steps.stage.outputs.deb }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.stage.outputs.deb }}
