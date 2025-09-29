@@ -22,34 +22,25 @@ jobs:
         run: |
           brew update
           brew install dpkg ldid
-
+          
       - name: Set up THEOS
         run: |
           git clone --depth=1 https://github.com/theos/theos.git $HOME/theos
-          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
-          # Point Theos at the iOS SDK that’s already on the macOS runner
+          sudo mkdir -p /opt
+          sudo ln -s $HOME/theos /opt/theos
+          # Point Theos at the iOS SDK on the macOS runner
           SDK_PATH="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
           mkdir -p "$HOME/theos/sdks"
           ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS.sdk"
+          echo "THEOS=$HOME/theos" >> $GITHUB_ENV
+          # sanity checks
+          ls -la $HOME/theos/bin
+          test -f $HOME/theos/bin/dm.pl || (echo "dm.pl missing" && exit 1)
 
       - name: Build & Package (rootless)
         env:
           THEOS: ${{ env.THEOS }}
         run: |
-          # If your repo is already a Theos project with a Makefile/control:
+          # if your Makefile hard-codes /opt/theos, the symlink above covers it
           make clean package THEOS_PACKAGE_SCHEME=rootless
-          # The .deb will land under ./packages/
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: debs
-          path: packages/*.deb
-          if-no-files-found: error
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: packages/*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ls -la packages
